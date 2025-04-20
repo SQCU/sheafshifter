@@ -1,30 +1,38 @@
-# sheafshifter 
-### née
-### 🍀passer
+## sheafshifter 
+#### née
+#### 🍀passer
 
-# OVERVIEW:
+## OVERVIEW:
 
 wow networking is stinky. stinky stinky stinky.
 we package some network libs.
 lacking better options:
 
-# SETUP:
+## SETUP:
 
-## if you somehow want to reproduce the historical process of retrieving enet binding source:
+#### if you somehow want to reproduce the historical process of retrieving enet binding source:
 `git clone sheafshifter`
+
 `cd sheafshifter\lib`
+
 `git clone https://github.com/aresch/pyenet`
+
 `cd pyenet `
+
 `git clone https://github.com/lsalzman/enet`
+
 `cd ..\..`
-### prebuild:
+
+#### prebuild:
 `uv init`
+
 `uv add cython`
+
 `uv add setuptools`
-### c bindings build:
+#### c bindings build:
 `uv add ./lib/pyenet`
 
-# APPLICATION:
+## APPLICATION:
 
 ```
 echo server (debug those built cythons!)
@@ -32,7 +40,7 @@ uv run mproc_pyenet_serv_iii.py
 uv run pyenet_client.py
 ```
 
-# PROJECT STATUS:
+## PROJECT STATUS:
 
 ```
 [x] get distracted by protobuf-related strategies to minimize service interruption data loss
@@ -66,7 +74,8 @@ uv run pyenet_client.py
     [] backpressure statuses for H/MI bus, prob dont need db load balancing tho
 ```
 
-# PROJECT SPECIFICATION NOTES:
+## PROJECT SPECIFICATION NOTES:
+
 if you aren't sure how to use notes or checklists, try passing entire readme.md files into your favorite language model API! they have the context length for that kind of writing these days.
 long gone are the 80 character row width 
 
