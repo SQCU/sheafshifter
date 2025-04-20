@@ -1,33 +1,40 @@
-#sheafshifter 
-###née
-###🍀passer
+# sheafshifter 
+### née
+### 🍀passer
 
-#OVERVIEW:
-wow this is stinky. stinky stinky stinky.
-we package some libs.
+# OVERVIEW:
+
+wow networking is stinky. stinky stinky stinky.
+we package some network libs.
 lacking better options:
 
-#SETUP:
-if you somehow want to reproduce the historical process of retrieving enet binding source:
+# SETUP:
+
+## if you somehow want to reproduce the historical process of retrieving enet binding source:
 `git clone sheafshifter`
 `cd sheafshifter\lib`
 `git clone https://github.com/aresch/pyenet`
 `cd pyenet `
 `git clone https://github.com/lsalzman/enet`
 `cd ..\..`
-prebuild:
+### prebuild:
 `uv init`
 `uv add cython`
 `uv add setuptools`
-c bindings build:
+### c bindings build:
 `uv add ./lib/pyenet`
 
-#APPLICATION:
+# APPLICATION:
+
+```
 echo server (debug those built cythons!)
 uv run mproc_pyenet_serv_iii.py
 uv run pyenet_client.py
+```
 
-#PROJECT STATUS:
+# PROJECT STATUS:
+
+```
 [x] get distracted by protobuf-related strategies to minimize service interruption data loss
 [x] benchmark python serialization and find it's 'no big deal', 'message passing really rocks'
 [x] write simple best-case network handlers
@@ -57,8 +64,13 @@ uv run pyenet_client.py
     [] a .txt file with a global lock in front of it is a db if u think about it
     [] synthesize API-compliant queries from H/MI bus directives & reads from db
     [] backpressure statuses for H/MI bus, prob dont need db load balancing tho
+```
 
-#PROJECT SPECIFICATION NOTES:
+# PROJECT SPECIFICATION NOTES:
+if you aren't sure how to use notes or checklists, try passing entire readme.md files into your favorite language model API! they have the context length for that kind of writing these days.
+long gone are the 80 character row width 
+
+```
 and with that we have a wrapper around a wrapper around UDP.
 it's gonna be one of *those* projects, isn't it?
     "is enet thread-safe?"
@@ -69,6 +81,8 @@ for our purposes, what this means is that *we* are scheduling the 'hot loop' whi
     * we probably care about ENET_EVENT_TYPE_RECEIVE events at both server and client.
     * because networking sucks, explicitly returning ACKs over and over again is the only legitimate methodology for advancing our distributed processing task history.
     *this unfortunately creates requirements for our api-sided clients: they will likely need to ACK our ENET_PACKET_FLAG_RELIABLES or our task routing application can't successfully abstract the routing of tasks!
+```
+```   
 we quickly reach a three-server model:
 database worker: 
     accepts API queries; queries router with job_ID, requesting query_UUID.
@@ -89,7 +103,6 @@ database worker eventually also:
     we should note that the worker service must await async and possibly long operations to retrieve db values from a db key.
         however WHO CARES, it is SO MUCH MORE BLOATED for the db worker to replicate a db value in its protocol related state that this is UNIMPORTANT.
     we also might note that persisting db worker task data to the underlying db is probably fine bc its gonna be tiny (job UUID, task UUID, CRC, status) compared to the data (strings over 100 chars in length)
-
 router server:
     accepts API queries, writes them to an intermediate queue so that we can saturate newly appearing API servers when they exist. for example we can:
         boot up a laptop. 
@@ -156,7 +169,7 @@ so anyways a router server does this stuff:
             **UPDATE**: is there an easier way?
             if we synthesize task_ID by hashing client_query, a failworker will discover their task results *already cached* in the routing server if they reconnect and attempt to resubmit a task.
             WOOO THAT'S AN ENTIRE NETWORK TRANSACTION WE NEVER NEED TO WRITE!!!
-    
+```
         
     
 
