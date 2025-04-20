@@ -2,12 +2,12 @@
 ###née
 ###🍀passer
 
-OVERVIEW:
+#OVERVIEW:
 wow this is stinky. stinky stinky stinky.
 we package some libs.
 lacking better options:
 
-SETUP:
+#SETUP:
 if you somehow want to reproduce the historical process of retrieving enet binding source:
 `git clone sheafshifter`
 `cd sheafshifter\lib`
@@ -21,6 +21,11 @@ prebuild:
 `uv add setuptools`
 c bindings build:
 `uv add ./lib/pyenet`
+
+#APPLICATION:
+echo server (debug those built cythons!)
+uv run mproc_pyenet_serv_iii.py
+uv run pyenet_client.py
 
 #PROJECT STATUS:
 [x] get distracted by protobuf-related strategies to minimize service interruption data loss

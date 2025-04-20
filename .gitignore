@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+#you probably really don't want to sync the cython here
+lib/*
