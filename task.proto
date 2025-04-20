@@ -1,0 +1,21 @@
+edition = "2023";
+
+message ClientInfo {
+  string client_id = 1;  //UUID
+}
+
+message WorkerInfo {
+  string worker_id = 1;  //UUID
+}
+
+message Task {
+  string query_identifier = 1;  //UUID
+  string worker_identifier = 2; //disjoint UUID
+  bytes client_query = 3;
+  bytes return_payload = 4;
+  uint32 status = 5; 
+  //0 "pending", 1 "fresh", 2 "api_hit", 3 "api_return", 
+  //5 "query_return", 6 "complete", 4 failed
+  ClientInfo client_info = 6;
+  WorkerInfo worker_info = 7;
+}
