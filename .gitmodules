@@ -1,0 +1,3 @@
+[submodule "lib/pyenet"]
+	path = lib/pyenet
+	url = https://github.com/SQCU/pyenet

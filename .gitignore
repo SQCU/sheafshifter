@@ -10,4 +10,5 @@ wheels/
 .venv
 
 #you probably really don't want to sync the cython here
-lib/*
+lib/bin/
+lib/include/

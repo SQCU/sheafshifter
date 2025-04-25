@@ -3,31 +3,25 @@
 #### 🍀passer
 
 ## OVERVIEW:
-
 wow networking is stinky. stinky stinky stinky.
 we package some network libs.
 lacking better options:
 
 ## SETUP:
+```
+git clone --recurse-submodules https://github.com/SQCU/sheafshifter
+```
+if this package is active and you are pulling patches from it for some horrifying reason, pull with `--recurse-submodules`.
+```
+git pull --recurse-submodules
+```
 
-#### if you somehow want to reproduce the historical process of retrieving enet binding source:
-`git clone sheafshifter`
-
-`cd sheafshifter\lib`
-
-`git clone https://github.com/aresch/pyenet`
-
-`cd pyenet `
-
-`git clone https://github.com/lsalzman/enet`
-
-`cd ..\..`
+#### cool i guess we submodule now?
+lib\ should contain the submodules just as well as anywhere else
 
 #### prebuild:
 `uv init`
-
 `uv add cython`
-
 `uv add setuptools`
 #### c bindings build:
 `uv add ./lib/pyenet`
@@ -77,7 +71,7 @@ uv run pyenet_client.py
 ## PROJECT SPECIFICATION NOTES:
 
 if you aren't sure how to use notes or checklists, try passing entire readme.md files into your favorite language model API! they have the context length for that kind of writing these days.
-long gone are the 80 character row width 
+long gone are the 80 character row width limits
 
 ```
 and with that we have a wrapper around a wrapper around UDP.
@@ -182,5 +176,17 @@ so anyways a router server does this stuff:
         
     
 
+```
+┌
+        ＡＣＨＴＵＮＧ！
+                            ┘
+```
+#### if you somehow want to reproduce the historical process of retrieving enet binding source:
+`git clone sheafshifter`
+`cd sheafshifter\lib`
+`git clone https://github.com/aresch/pyenet`
+`cd pyenet `
+`git clone https://github.com/lsalzman/enet`
 
-
+`cd ..\..`
+this is not a good idea and will produce irrelevant errors that you don't want to personally explore. the SQCU-tracking pyenet version has a pyproject.toml or whatever.
