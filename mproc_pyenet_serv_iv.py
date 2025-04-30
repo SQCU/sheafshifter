@@ -3,6 +3,8 @@ import sys, os
 import enet
 import multiprocessing as mproc
 import threading
+#packets
+import msgspec
 
 # update did you know you can make your code look very professional
 # that is to say, like a chatbot wrote it, by selecting every sequence starting with a #
@@ -31,6 +33,24 @@ import threading
 # b_b_queues must define {'bus':<queue reference>,'CHECKFLAG':queuetype_CHECKFLAG}
 # for all blocking queues used in program: what this means pragmatically is like
 # {'responses':{'bus':responses,'CHECKFLAG':("CHECKFLAG","Unexpected CHECKFLAG print?")}}
+
+#update if logging's so great why isn't there a logging II?
+
+def intbitter(inty):
+    return int.to_bytes(inty,1,byteorder="big")
+def int4bitter(inty):
+    return int.to_bytes(inty,4,byteorder="big")
+def intsweeten(inty):
+    return int.from_bytes(inty,byteorder="big")
+def byxor(lbys, rbys):
+    return bytes([lby^rby for lby, rby in zip(lbys, rbys) ])
+def sbytes(stringy):
+    return bytes(stringy, 'utf8')
+def strytes(bystrng):
+    return stringy.decode('utf8')
+
+
+
 
 # update print only sliced samples of packet contents to manage Certain Issues.
 def all_bus_checkflag(sorites, eubulides, responses, vile_semaphore):
@@ -89,13 +109,6 @@ def enet_inbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore)
         #as... a str(magnitude) operation has log(n) complexity, 
         #the use of an unbounded counter will cause log(n) latency with n successfully managed connections
 
-        # these lines chronologue blocking vs nonblocking prints
-        # don't uncomment these without *actually recording* the log level verbosity
-        # don't delete them either (duh): they belong in at least one logging level.
-        # it must be explicit that putting print calls inside of a process lags that process.
-        #print("mprc:enet_inbound():"+str(ticker)+", "+str(ykey))   
-        #responses.put(("printable","mprc:blocky_printer:"+str(ticker)+", "+str(ykey)))
-
         if int(event.type) == int(enet.EVENT_TYPE_CONNECT):
             yeetable_event = (ykey, int(event.type), str(event.peer.address), None)
         elif int(event.type) == int(enet.EVENT_TYPE_DISCONNECT):
@@ -110,6 +123,7 @@ def enet_inbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore)
 def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore):
     #enethost = evil_ass_kvstore["host"]
     run=True
+    mirror=False
     #basically a constant wrt this protocol
     def compose_bflags(list):
         carrier = int(0)
@@ -134,7 +148,22 @@ def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore
         if sendable[0] == 'CHECKFLAG':
             #wake up blocked function
             continue
-        if sendable[1] is None:
+        elif sendable[0] == 'MIRRORHOST':   #discover logging server
+            evil_ass_kvstore['mhost'] = evil_ass_kvstore[sendable[1]]
+            responses.put(("printable","wrote mirrorhost"))
+            mirror = True
+            continue
+        elif sendable[0]  == 'MIRRORSEND':  #blast logging server
+            mirrorpeer = evil_ass_kvstore['mhost'].peer
+            payload = enet.Packet(sendable[1], pflags)
+            sendstatus = mirrorpeer(mirrorpeer.incomingPeerID, payload)
+            if sendstatus == -1 :
+                printstring = "%s: uh oh in the mirrorsendo — intended payload was %s" % (str(event.peer.address), repr(sendable[1][:80]))
+                responses.put(("printable",printstring))
+                del evil_ass_kvstore[sendable[0]]
+                continue
+            continue
+        elif sendable[1] is None:
             responses.put(("printable","purged None-returned entry from connection table."))
             del evil_ass_kvstore[sendable[0]]
             continue
@@ -145,7 +174,7 @@ def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore
         #sends and gets a return object. return only meaningful in case of errors.
         sendstatus = event.peer.send(event.peer.incomingPeerID, payload)
         if sendstatus == -1 :
-            printstring = "%s: uh oh in the echo packeto — intended payload was %s" % (str(event.peer.address), sendable[1][:80])
+            printstring = "%s: uh oh in the echo packeto — intended payload was %s" % (str(event.peer.address), repr(sendable[1][:80]))
             responses.put(("printable",printstring))
             del evil_ass_kvstore[sendable[0]]
             continue
@@ -153,10 +182,9 @@ def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore
         #responses.put(("printable",printstring))
         del evil_ass_kvstore[sendable[0]]
 
-#refactored for blocking wait interrupt
-#refactored for shutdown semaphore
-def blocky_printer(responses, vile_semaphore):
+def blocky_printer(inqueue, outqueue, responses, vile_semaphore):
     run=True
+    mirror = False
     while run:
         if vile_semaphore[2]:
             #check semaphores before slow blocking call
@@ -169,19 +197,77 @@ def blocky_printer(responses, vile_semaphore):
         if printable[0] == 'CHECKFLAG':
             #wake up blocked function
             continue
+        elif printable[0] == 'MIRRORSET':
+            mirror = True
+            continue
+        elif printable[0] == 'MIRRORUNSET':
+            mirror = False
+            continue
         print(printable[1])
-        #weird, right?
-        #the hypothesis here is that queue access is intrinsically cheaper than stdout
-        #this is imaginable bc like. queue should move at cpu speed.
-        #and cpus are very very fast.
+        if mirror:
+            outqueue.put('MIRRORSEND',printable)
 
-#refactored to event-non-passing
-#refactored for blocking wait interrupt
-#refactored for shutdown semaphore
 def echo_protocol(inqueue, outqueue, responses, vile_semaphore):    
     connect_count = 0
     run = True
     shutdown_recv = False
+
+    msgpack_encoder = msgspec.msgpack.Encoder()
+    msgpack_decoder = msgspec.msgpack.Decoder()
+    #packetization 
+    protocol_version = 1
+    event_2head = {b"LOGG":b"a",
+    b"ADMIN":b"b",
+    b"DATA":b"c"}
+    head_2event = {b"a":b"LOGG",
+    b"b":b"ADMIN",
+    b"c":b"DATA"}
+    statuscodes = (b"SHUTDOWN", b"SYN", b"ACK", b"ECHO",b"MIRRORSYN")
+    vchar = intbitter(protocol_version*4)
+
+    #proto1 functions
+    def a_encode(event, statuscode):
+        #assert event in event_2head.keys()
+        #assert statuscode in statuscodes
+        header = vchar+event_2head[event]+int4bitter(len(statuscode))
+        return header + statuscode
+    def shshp_ver(packet):
+        if packet[0:1] == vchar:
+            return intsweeten(packet[0:1])
+        else:
+            return 0
+    def shshp_peek(packet):
+        #assert len(packet)>=6   #proto 1
+        #assert intsweeten(packet[0])==4
+        return head_2event[packet[1:2]] 
+        #event, e.g. ADMIN, LOGG, DATA/
+    def a_decode(packet, ecode):
+        #header = packet[0:7]
+        decdict = {
+            "version":intsweeten(packet[0:1]),
+            "event":head_2event[packet[1:2]],
+            "data_length":intsweeten(packet[2:7])
+        }
+        #assert decdict["event"] == ecode
+        #assert decdict["data_length"] == len(packet)-6
+        #all okay
+        return decdict, packet[7:]
+    def l_encode(event, printable):
+        #assert event in event_2head.keys()
+        pckdata = msgpack_encoder.encode(printable)
+        header = vchar+event_2head[event]+int4bitter(len(pckdata))
+        return header+pckdata   
+    def l_decode(packet, ecode):
+        decdict = {
+            "version":intsweeten(packet[0:1]),
+            "event":head_2event[packet[1:2]],
+            "data_length":intsweeten(packet[2:7])
+        }
+        #assert decdict["event"] == ecode
+        #assert decdict["data_length"] == len(packet)-6
+        return decdict, msgpack_decoder.decode(packet[7:])
+
+
     while run:
         if vile_semaphore[3]:
             #check semaphores before slow blocking call
@@ -220,9 +306,23 @@ def echo_protocol(inqueue, outqueue, responses, vile_semaphore):
         elif y_event[1] == int(enet.EVENT_TYPE_RECEIVE):
             #send (int channelID, Packet packet)
             rpckt = y_event[3]
-            sendable = (y_event[0],rpckt)   #we can't presume a decoding bc non-utf8 bytes are possible
-            #peer id key, echo packet. remember this is still only an echo server!
-            #also remember to reencode that message to bytes. haha.
+            proto_level = shshp_ver(rpckt)
+            
+            if proto_level==4:
+                event = shshp_peek(rpckt)
+                if event == b"ADMIN":
+                    ddict, statuscode = a_decode(rpckt, event)
+                    if statuscode == b"SHUTDOWN":
+                        shutdown_recv = True
+                        responses.put(("printable","proto1 shutdown called! shutdown flag status: %s" % shutdown_recv))
+                        vile_semaphore[3] == 1
+                        continue
+                    elif statuscode == b"MIRRORSYN":
+                        sendable = ("MIRRORHOST",y_event[0]) # tell enet workers to record mirrorhost
+                        continue
+
+            #basic case
+            sendable = (y_event[0],rpckt)
             outqueue.put(sendable)  #blocks until... outqueue is usable?
             if rpckt == b"SHUTDOWN":
                 shutdown_recv = True
@@ -252,7 +352,7 @@ def host_worker(inqueue, outqueue, responses, vile_semaphore):
     #args = (inqueue, outqueue, responses)
     #print(f"Arguments: {args}")
     hosthreadz = [threading.Thread(target=echo_protocol, args=(inqueue, outqueue, responses, vile_semaphore, )),
-    threading.Thread(target=blocky_printer, args=(responses, vile_semaphore, ))]
+    threading.Thread(target=blocky_printer, args=(inqueue, outqueue, responses, vile_semaphore, ))]
 
     for ht in hosthreadz:
         ht.start()
@@ -271,11 +371,6 @@ def main():
     # forking pickler got us! it was always illegal to pass a cython object across threads
     # *even as an operand*! 
     host_args = (("localhost",33333), (enet_peer_capacity, enet_channel_capacity, 0, 0))
-    """ #migrated these bad boys into the enet worker context!
-    connect_count = 0
-    run = True
-    shutdown_recv = False
-    """
 
     sorites = mproc.Queue()
     eubulides = mproc.Queue()
@@ -298,9 +393,6 @@ def main():
 
     for pz in processez:
         pz.join()
-
-    bus_buster = len(threading.enumerate())
-    print("caught u threading O(%s)" % (bus_buster))
 
     #print("somehow we reached the end of control flow!")
     #print(f"this multiprocessing.active_children() better b zero: {mproc.active_children()}")

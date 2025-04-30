@@ -7,6 +7,7 @@ import sys, os
 #towards zero-delay enet_host_service() polling
 #   (in pyenet: enet.Host.service())
 #without misdelivery, duplication, or dropped packets.
+#this client does not have defined behavior for an offline echo server
 
 def barray_xor(barray,operand):
     result = bytearray()
@@ -23,19 +24,23 @@ def main():
     peer = host.connect(enet.Address(b"localhost", 33333), 1)
 
     counter = 0
+    rcounter = 0
     run = True
     shutdown_sent = False
 
     while run:
         event = host.service(0) #if dialed too low... can't send shutdown message?
+        
         if event.type == enet.EVENT_TYPE_CONNECT:
             print("%s: CONNECT" % event.peer.address)
+            continue
         elif event.type == enet.EVENT_TYPE_DISCONNECT:
             print("%s: DISCONNECT" % event.peer.address)
             run = False
             continue
         elif event.type == enet.EVENT_TYPE_RECEIVE:
             print("%s: IN:  %r" % (event.peer.address, event.packet.data))
+            rcounter+=1
             if event.packet.data == b"SHUTDOWN":
                 #wow this block is *really important* for removing race conditions.
                 peer.disconnect()
@@ -55,6 +60,7 @@ def main():
             shutdown_sent = True
 
 
+    print(f"counter:{counter};rcounter:{rcounter}")
 
 if __name__ == '__main__':
     try:

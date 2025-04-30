@@ -1,101 +1,104 @@
-#mproc_pyenet_serv_iii
+#shsh_proto_i.py
 import sys, os
 import enet
 import multiprocessing as mproc
 import threading
+#packets
+import msgspec
 
-# update did you know you can make your code look very professional
-# that is to say, like a chatbot wrote it, by selecting every sequence starting with a #
-# then deleting every single one of them?
-# the bravery and power of the commentless programmer is truly without compare
-# 'knuth's illiterates' they call em
+#pitfalls we are eluding:
+#1: non-protocol debug returns, e.g. a pure echo server.
+#   1a: why can't we return a PROTOCOLERROR: "YOU SEEM TO HAVE FORGOTTEN YOUR HEADERS?"
+#   1b: a PROTOCOLERROR can have a body which has the echo data anyways!
+#2: implict rather than explicit IPC protocols
+#   2a: network packets aren't different enough from same-script IPC queue events
+#   2b: we have been serializing those mfers anyways!
+#       2ba: why didn't i notice that faster?
+#   3:peer connection table:
+#       🗡re: enet.pyx: 
+        #   This class should never be instantiated directly, but rather via
+        #   enet.Host.connect or enet.Event.Peer.
+        #this means that... our connection table should have dereferenced
+        #a `.peer` from our events this entire time,
+        #rather than creating a connection table row for each network event
+        #and then dereferencing the events to peers inside of ...outbound()
 
-#update threading is cursed
+#evil helper functions block
+def intbitter(inty):
+    return int.to_bytes(inty,1,byteorder="big")
+def int4bitter(inty):
+    return int.to_bytes(inty,4,byteorder="big")
+def intsweeten(inty):
+    return int.from_bytes(inty,byteorder="big")
+def byxor(lbys, rbys):
+    return bytes([lby^rby for lby, rby in zip(lbys, rbys) ])
+def sbytes(stringy):
+    return bytes(stringy, 'utf8')
+def strytes(bystrng):
+    return stringy.decode('utf8')
 
-#update semaphorse are cursed
-# candidate solution for making semaphores compatible with input-blocked threads:
-# new message type for *all* queues which can input block any thread:
-# CHECKFLAG
-# all input blocked functions over queues must:
-# implement 'buffer = some_queue.get();
-# -> if buffer == queuetype_CHECKFLAG: 
-# -> continue.
-# *further*, all blocking functions need to check 
-# shared memory in their loops before blocking for admin events.
-# i feel like im being forced to derive a CPU interrupt implementation here.
-# anyways whatever process receives administrative overrides needs to call
-# bus_buster = len(threading.enumerate())
-# for thrd in bus_buster:
-#   for que in b_b_queues.keys():
-#       que["bus"].put(que["CHECKFLAG"])
-# b_b_queues must define {'bus':<queue reference>,'CHECKFLAG':queuetype_CHECKFLAG}
-# for all blocking queues used in program: what this means pragmatically is like
-# {'responses':{'bus':responses,'CHECKFLAG':("CHECKFLAG","Unexpected CHECKFLAG print?")}}
+#enet helper functions block
+def compose_bflags(list):
+    carrier = int(0)
+    for fl in list:
+        carrier|fl
+    return carrier
 
-# update print only sliced samples of packet contents to manage Certain Issues.
-def all_bus_checkflag(sorites, eubulides, responses, vile_semaphore):
-    b_b_queues = {
-        'sorites'   :{'bus':sorites,  'CHECKFLAG':("CHECKFLAG", None, None, None)},
-        'eubulides' :{'bus':eubulides,'CHECKFLAG':("CHECKFLAG", None)},
-        'responses' :{'bus':responses,'CHECKFLAG':("CHECKFLAG","Unexpected CHECKFLAG print?")}
-    }
-    # we got lucky in that que["CHECKFLAG"] could be the same signature and index each time
-
+#semaphore helper functions block
+def all_bus_checkflag(ipc_queues, vile_semaphore):
+    b_b_queues=ipc_queues #dont ask
     bus_buster = len(threading.enumerate())
     print("caught u threading O(%sx%s)" % (bus_buster, len(b_b_queues.keys())))
     for que in b_b_queues.keys():
         for thrd in range(bus_buster):
             b_b_queues[que]["bus"].put(b_b_queues[que]["CHECKFLAG"])
-    #throw a flashbang into the message queue :)
-    #this will *not* cause all threads to check semaphore.
-    #it will have that property *if* threads block inside their semaphore handler.
-    #the astute reader will notice that you can *use a semaphore* to force that!
 
 def all_bus_syskill(vile_semaphore):
     for i in range(4):
         vile_semaphore[i]=1
     #0 for non-effect, 1 for effect.
 
-#refactored to event-non-passing
-#added interrupt semaphore
-def enet_inbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore):   
+#ENET BLOCK:
+def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):   
     #import enet
     host_args = evil_ass_kvstore["host_args"]
     eadd = enet.Address(*host_args[0])  #unpack uhh hostname uhh port
     enethost = enet.Host(eadd, *host_args[1])
     enethost.checksum = enet.ENET_CRC32
 
-    # these lines were used to debug the type of cython objects while debugging IPCIO.
-    # commit em, push em, delete em, diff em. git for all time how much we had to log.
-    #print(eadd)
-    #responses.put(("printable",str(eadd)))
-    # server thread startup config print
-    responses.put(("printable",repr(evil_ass_kvstore)))
-    
+    inqueue = ipc_queues["sorites"]["bus"]
+
     ticker = 0
     run=True
     while run:
-        event = enethost.service(0) # wait {operand} ms for network activity
+        #pre-polling block
+        if vile_semaphore[0]:
+                run = False
+
+        # wait {operand} ms for network activity
+        event = enethost.service(0) 
+        
+        #post-polling block;
+        #thread now has 'hot' state that it must handle, even by reporting non-handling.
+        #non-event must prefix event handling
         if int(event.type) == int(enet.EVENT_TYPE_NONE):
             #why check semaphores on every cycle whether or not an event happened?
-            if vile_semaphore[0]:
-                run = False
-            continue #it would be *really* weird to saturate queue with non-events!
+            continue
         
+        #event handling block
+        #implicitly qualified by not-non-event
         ticker +=1
+
+        #!REFACTOR WARNING!
+        #older implementation logged events. 
+        #this is most coherent for data streams but what if we're deferring results?
+        #we ultimately need a connection table...
+        #which joins task UUIDs to peers who assert claims to task UUIDs.
         ykey = repr(ticker)
         evil_ass_kvstore[ykey] = event
-        #a repr is a unique id if you're brave enough
-        #as... a str(magnitude) operation has log(n) complexity, 
-        #the use of an unbounded counter will cause log(n) latency with n successfully managed connections
 
-        # these lines chronologue blocking vs nonblocking prints
-        # don't uncomment these without *actually recording* the log level verbosity
-        # don't delete them either (duh): they belong in at least one logging level.
-        # it must be explicit that putting print calls inside of a process lags that process.
-        #print("mprc:enet_inbound():"+str(ticker)+", "+str(ykey))   
-        #responses.put(("printable","mprc:blocky_printer:"+str(ticker)+", "+str(ykey)))
-
+        #!REFACTOR WARNING!
+        #THIS IS A PACKET FORMATION SCENARIO. SUS UP!!!
         if int(event.type) == int(enet.EVENT_TYPE_CONNECT):
             yeetable_event = (ykey, int(event.type), str(event.peer.address), None)
         elif int(event.type) == int(enet.EVENT_TYPE_DISCONNECT):
@@ -103,19 +106,18 @@ def enet_inbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore)
         elif int(event.type) == int(enet.EVENT_TYPE_RECEIVE):
             yeetable_event = (ykey, int(event.type), str(event.peer.address), event.packet.data)
 
+        #!REFACTOR WARNING!
+        #IPC transmission scenario. stay noided.
         inqueue.put(yeetable_event) #blocking ipc i guess!!!
 
-#refactored for blocking wait interrupt
-#refactored for shutdown semaphore
-def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore):
+def enet_outbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
     #enethost = evil_ass_kvstore["host"]
     run=True
-    #basically a constant wrt this protocol
-    def compose_bflags(list):
-        carrier = int(0)
-        for fl in list:
-            carrier|fl
-        return carrier
+    
+    #inqueue = ipc_queues["sorites"]["bus"]
+    outqueue = ipc_queues["eubulides"]["bus"]
+    responses = ipc_queues["responses"]["bus"]
+
 
     pflags = compose_bflags(
         [enet.PACKET_FLAG_UNSEQUENCED,
@@ -123,17 +125,24 @@ def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore
         )
 
     while run:
+        #pre-polling block
         if vile_semaphore[1]:
             #check semaphores before slow blocking call
             run = False
             continue
-
-        sendable = outqueue.get()   #input blocking
+        
+        #unlimited block awaiting network outputs
+        #
+        sendable = outqueue.get()
         # (y_event[0],rpckt)   
-        # evil_ass_kvstore identifier, multiprocessing concurrency calculated return packet
+        # evil_ass_kvstore identifier, protocol return packet
+        
+        #post-polling block;
         if sendable[0] == 'CHECKFLAG':
             #wake up blocked function
             continue
+        #!REFACTOR WARNING!
+        #this is the ONLY mechanism limiting infinite event table bloat??
         if sendable[1] is None:
             responses.put(("printable","purged None-returned entry from connection table."))
             del evil_ass_kvstore[sendable[0]]
@@ -142,7 +151,9 @@ def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore
         event = evil_ass_kvstore[sendable[0]]
         payload = enet.Packet(sendable[1], pflags)
         #compose unsequenced unreliable packet!
-        #sends and gets a return object. return only meaningful in case of errors.
+        
+        #uses event.peer.send()?? not enet.peer.send()???
+        #   🗡re: enet.pyx: ...
         sendstatus = event.peer.send(event.peer.incomingPeerID, payload)
         if sendstatus == -1 :
             printstring = "%s: uh oh in the echo packeto — intended payload was %s" % (str(event.peer.address), sendable[1][:80])
@@ -153,10 +164,15 @@ def enet_outbound(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore
         #responses.put(("printable",printstring))
         del evil_ass_kvstore[sendable[0]]
 
-#refactored for blocking wait interrupt
-#refactored for shutdown semaphore
-def blocky_printer(responses, vile_semaphore):
+#PROTOCOL BLOCK
+
+def blocky_printer(ipc_queues, vile_semaphore):
     run=True
+
+    #inqueue = ipc_queues["sorites"]["bus"]
+    #outqueue = ipc_queues["eubulides"]["bus"]
+    responses = ipc_queues["responses"]["bus"]
+
     while run:
         if vile_semaphore[2]:
             #check semaphores before slow blocking call
@@ -170,18 +186,16 @@ def blocky_printer(responses, vile_semaphore):
             #wake up blocked function
             continue
         print(printable[1])
-        #weird, right?
-        #the hypothesis here is that queue access is intrinsically cheaper than stdout
-        #this is imaginable bc like. queue should move at cpu speed.
-        #and cpus are very very fast.
 
-#refactored to event-non-passing
-#refactored for blocking wait interrupt
-#refactored for shutdown semaphore
-def echo_protocol(inqueue, outqueue, responses, vile_semaphore):    
+def echo_protocol(ipc_queues, vile_semaphore):    
     connect_count = 0
     run = True
     shutdown_recv = False
+
+    inqueue = ipc_queues["sorites"]["bus"]
+    outqueue = ipc_queues["eubulides"]["bus"]
+    responses = ipc_queues["responses"]["bus"]
+
     while run:
         if vile_semaphore[3]:
             #check semaphores before slow blocking call
@@ -232,14 +246,16 @@ def echo_protocol(inqueue, outqueue, responses, vile_semaphore):
 
     print("mprcs:echo_protocol:rare blocking write. connection closure called, time to clean up.")
     all_bus_syskill(vile_semaphore)
-    all_bus_checkflag(inqueue,outqueue,responses,vile_semaphore)
+    all_bus_checkflag(ipc_queues,vile_semaphore)
 
-def enet_worker(host_args, inqueue, outqueue, responses, vile_semaphore):
+#THREADING BLOCK
+
+def enet_worker(host_args, ipc_queues, vile_semaphore):
     #args = (inqueue, outqueue, responses)
     #print(f"Arguments: {args}")
     evil_ass_kvstore = {"host_args":host_args}
-    ethreadz = [threading.Thread(target=enet_inbound, args=(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore,)),
-    threading.Thread(target=enet_outbound, args=(evil_ass_kvstore, inqueue, outqueue, responses, vile_semaphore,))]
+    ethreadz = [threading.Thread(target=enet_inbound, args=(evil_ass_kvstore, ipc_queues, vile_semaphore,)),
+    threading.Thread(target=enet_outbound, args=(evil_ass_kvstore, ipc_queues, vile_semaphore,))]
     for t in ethreadz:
         t.start()
 
@@ -248,11 +264,11 @@ def enet_worker(host_args, inqueue, outqueue, responses, vile_semaphore):
     print("ＢＥＷＡＲＥ！ NETWORK I/O TERMINATED")
     #technically this would let, uh, stuff close, i guess? yeah i dunno.
 
-def host_worker(inqueue, outqueue, responses, vile_semaphore):
+def host_worker(ipc_queues, vile_semaphore):
     #args = (inqueue, outqueue, responses)
     #print(f"Arguments: {args}")
-    hosthreadz = [threading.Thread(target=echo_protocol, args=(inqueue, outqueue, responses, vile_semaphore, )),
-    threading.Thread(target=blocky_printer, args=(responses, vile_semaphore, ))]
+    hosthreadz = [threading.Thread(target=echo_protocol, args=(ipc_queues, vile_semaphore, )),
+    threading.Thread(target=blocky_printer, args=(ipc_queues, vile_semaphore, ))]
 
     for ht in hosthreadz:
         ht.start()
@@ -261,6 +277,8 @@ def host_worker(inqueue, outqueue, responses, vile_semaphore):
         ht.join()
     print("ＢＥＷＡＲＥ！ PROTOCOL SERVICES TERMINATED")
     #yyee haww
+
+
 
 def main():
     enet_peer_capacity = 4095 # please don't find a way to saturate this
@@ -277,19 +295,26 @@ def main():
     shutdown_recv = False
     """
 
-    sorites = mproc.Queue()
+    sorites = mproc.Queue() 
     eubulides = mproc.Queue()
     responses = mproc.Queue()
+
+    ipc_queues = {
+        'sorites'   :{'bus':sorites,  'CHECKFLAG':("CHECKFLAG", None, None, None)},
+        'eubulides' :{'bus':eubulides,'CHECKFLAG':("CHECKFLAG", None)},
+        'responses' :{'bus':responses,'CHECKFLAG':("CHECKFLAG","Unexpected CHECKFLAG print?")}
+    }
+
     vile_semaphore = mproc.Array('i', 5, lock=False)
-    #canonical list: enet_in , enet_out, blocky_printer, echo_protocol, unused.
+    #canonical list: enet_in, enet_out, blocky_printer, echo_protocol, unused.
     #echo_protocol self-owns from shutdown packet at present.
     #0 non-block 1 suspend, other integers unused
     # e.g. 
     # if vile_semaphore[1]:
     #   enet_out.run = False
 
-    processez = [mproc.Process(target=enet_worker, args=(host_args, sorites, eubulides, responses, vile_semaphore, )), 
-    mproc.Process(target=host_worker, args=(sorites, eubulides, responses, vile_semaphore, ))]
+    processez = [mproc.Process(target=enet_worker, args=(host_args, ipc_queues, vile_semaphore, )), 
+    mproc.Process(target=host_worker, args=(ipc_queues, vile_semaphore, ))]
 
     for pz in processez:
         pz.start()
@@ -298,9 +323,6 @@ def main():
 
     for pz in processez:
         pz.join()
-
-    bus_buster = len(threading.enumerate())
-    print("caught u threading O(%s)" % (bus_buster))
 
     #print("somehow we reached the end of control flow!")
     #print(f"this multiprocessing.active_children() better b zero: {mproc.active_children()}")
