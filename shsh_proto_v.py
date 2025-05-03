@@ -9,6 +9,7 @@ import signal
 #packets
 import msgspec
 import pickle #hehe
+from functools import reduce
 
 #pitfalls we are eluding:
 #1: non-protocol debug returns, e.g. a pure echo server.
@@ -139,7 +140,6 @@ def pref(operandbytes=sbytes("NONE"), pickleable=sbytes("NONE")):
     # 4+1+1+6
     heada = ver+fieldbyte+headalen+codalen
     return heada+pckl, err
-    pass
 def pdref(operandbytes):
     #ipc protocol dereference
     #pass serialized packet (meant for message-passing mproc queues)
@@ -147,7 +147,6 @@ def pdref(operandbytes):
     #that's right: the return is a dereferenced tuple of a tuple and a list of tuples.
     #error return should be an empty list, (or a falsy 😌) when ur inputs arent bad
     def bytewise_NOTORNOT(byties,bytiestwo):
-        from functools import reduce
         zzipp = list(zip(byties,bytiestwo))
         #print(zzipp)
         zippzer = [ ~(z[0]|~z[1]) for z in zzipp]
@@ -181,7 +180,6 @@ def pdref(operandbytes):
     #return (field, coda), err   #lefty normal, righty errors
     #WOAH that was a weird choice of a return for a first patch. review later.
     return coda, err
-    pass
 
 #semaphore helper functions block
 #syskill(...) -> checkflag(...) for normal shutdowns
@@ -357,10 +355,14 @@ def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
             evil_ass_kvstore[ykey] = event
 
             #refactor phase 1
+            y_data = None
+            if event.type == enet.EVENT_TYPE_RECEIVE:
+                y_data = event.packet.data
+
             yeetable_event = (ykey, 
             int(event.type), 
             str(event.peer.address), 
-            event.packet.data if event.type == enet.EVENT_TYPE_RECEIVE else None)
+            y_data)
 
             #refactor phase 1
             ipc_packet = serialize_IPC("SORITES", yeetable_event)
@@ -376,8 +378,8 @@ def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
     except KeyboardInterrupt:
         vile_semaphore[0]=1    #its our flag :)
         pass
-    finally:
-        pass
+    #finally:
+    #    pass
         #who knows what goes here lol
 
 def enet_outbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
@@ -465,8 +467,8 @@ def enet_outbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
     except KeyboardInterrupt:
         vile_semaphore[1]=1    #its our flag :)
         pass
-    finally:
-        pass
+    #finally:
+    #    pass
         #yeah idk what goes here
 
 #PROTOCOL BLOCK
