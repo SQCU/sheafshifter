@@ -158,9 +158,9 @@ def pdref(operandbytes):
     #print(refver)
     ver=operandbytes[0:4]
     #print(ver)
-    verdiff = bytewise_NOTORNOT(refver,ver)
-    if verdiff:
-        err.append(("VERSION_ERROR",verdiff))
+    #verdiff = bytewise_NOTORNOT(refver,ver)
+    #if verdiff:
+    #    err.append(("VERSION_ERROR",verdiff))
     byte2field = {
         sbytes("a"):sbytes("SORITES"),
         sbytes("b"):sbytes("EUBULIDES"),
