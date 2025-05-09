@@ -113,8 +113,8 @@ def main():
     
         if counter>=1 and not shutdown_sent:
             #see if packet gets fragmented!
-            msg = SHUTDOWN_MSG
-            peer.send(0, enet.Packet(msg))
+            #msg = SHUTDOWN_MSG
+            #peer.send(0, enet.Packet(msg))
             shutdown_sent = True
 
         """

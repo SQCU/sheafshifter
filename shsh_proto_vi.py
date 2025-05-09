@@ -1,5 +1,5 @@
-#shsh_proto_v.py
-#refactor to IPC packet transcoding tested + working
+#shsh_proto_vi.py
+#next refactor
 import sys, os
 import enet
 import multiprocessing as mproc
@@ -86,6 +86,16 @@ from functools import reduce
 # 2: just pick a magic number already
 # 3: stupid and bad formats are still formats, and a detectable format can be fixed later!
 
+#5/5 re-update:
+#  decouple packet header inspection from packet header stripping?
+#   actually checking the types and versions in an IPC packet 
+#   as a level of error-correction u should interpolate into, 
+#   in response to actual application errors or return events.
+#lets fix the connection table to connection-id basis instead of event-basis,
+#   and use the remedied connection table to remove the branch from enet_inbound and protocol
+#   we've pre-refactored one of the annoying parts by... 
+#   using ipc_queue data object to define interrupt packets.
+#
 
 
 #evil helper functions block
@@ -157,10 +167,13 @@ def pdref(operandbytes):
     refver = int4bitter(967296) #version 0=967,296. version+1=value+1.
     #print(refver)
     ver=operandbytes[0:4]
+
+    #refactor error checking intensity
     #print(ver)
     #verdiff = bytewise_NOTORNOT(refver,ver)
     #if verdiff:
     #    err.append(("VERSION_ERROR",verdiff))
+
     byte2field = {
         sbytes("a"):sbytes("SORITES"),
         sbytes("b"):sbytes("EUBULIDES"),
@@ -168,18 +181,21 @@ def pdref(operandbytes):
         sbytes("NNNnnn"):sbytes("NONE"),
     }
     fieldbytes = operandbytes[4:5]
+
     #... can we get an error if we utf8 decode an arbitrary byte?
     #probably lol but who would ever write a wrong byte there?
-    if not fieldbytes.decode("utf8").startswith(tuple(ke.decode("utf8") for ke in byte2field.keys())):   
-        err.append(("IPCPROTO_ERROR",f"YOU DECODED SOMETHING SUSPICIOUSLY LIKE A NONE-FIELD:{repr(fieldbytes)}"))
-        fieldbytes = b"NNNnnn"
+
+    #refactor error checking intensity
+    #if not fieldbytes.decode("utf8").startswith(tuple(ke.decode("utf8") for ke in byte2field.keys())):   
+    #    err.append(("IPCPROTO_ERROR",f"YOU DECODED SOMETHING SUSPICIOUSLY LIKE A NONE-FIELD:{repr(fieldbytes)}"))
+    #    fieldbytes = b"NNNnnn"
+
     field = byte2field[fieldbytes]
     headalen = operandbytes[5:6] #teehee
     #codalen = operandbytes[6:headalen]
     coda = pickle.loads(operandbytes[intsweeten(headalen):])
-    #return (field, coda), err   #lefty normal, righty errors
-    #WOAH that was a weird choice of a return for a first patch. review later.
-    return coda, err
+    #lefty normal, righty errors
+    return (field, coda), err
 
 #semaphore helper functions block
 #syskill(...) -> checkflag(...) for normal shutdowns
@@ -187,15 +203,16 @@ def pdref(operandbytes):
 def all_bus_checkflag(ipc_queues, vile_semaphore):
     #b_b_queues=ipc_queues #dont ask
 
+    """ #yay we retired this conversion :)
     cflg_to_ipcproto = {
-        "sorites":"SORITES",
-        "eubulides":"EUBULIDES",
-        "responses":"WRITTEN",
+        "SORITES":"SORITES",
+        "EUBULIDES":"EUBULIDES",
+        "WRITTEN":"WRITTEN",
     }
-
+    """
     def ret_meta_error(ipc_err):
         ipc_err_pckt, prt_err = pref(sbytes("WRITTEN"), ("printable",ipc_err))
-        ipc_queues["responses"]["bus"].put(ipc_err_pckt)
+        ipc_queues["WRITTEN"]["bus"].put(ipc_err_pckt)
         if prt_err:
             print("all_bus_checkflag:emergency meta-error failover print:%s:from:%s" % (prt_err,ipc_err))
 
@@ -211,7 +228,7 @@ def all_bus_checkflag(ipc_queues, vile_semaphore):
     for que in ipc_queues.keys():
         for thrd in range(bus_buster):
             #cflg_pyobj = ipc_queues[que]["CHECKFLAG"]
-            cflg_pyobj = serialize_IPC(cflg_to_ipcproto[que],ipc_queues[que]["CHECKFLAG"])
+            cflg_pyobj = serialize_IPC(que,ipc_queues[que]["CHECKFLAG"])
             ipc_queues[que]["bus"].put(cflg_pyobj)
 
 def all_bus_syskill(vile_semaphore):
@@ -232,7 +249,8 @@ def all_bus_sys_ULTRAkill(vile_semaphore):
 # this *is* a signal handler.
 def signal_handler(signum, frame):
     #this is a debug string but i love it and you'll have to pay me to change it
-    print(f"Received {signum}! raising poopdick!")
+    #ethics prevailed 😔
+    print(f"Received {signum}! injecting interrupt!")
     raise KeyboardInterrupt
 
 #this one should add signal callers to a function's context.
@@ -242,7 +260,7 @@ def signal_handler(signum, frame):
 #then trigger at unexpected times, or after they're logically invalid, etc.
 #there are probably some metaprogramming tools we have not derived which let us track them.
 #for now, be ready for exceptions to *fundamentally break* any code in any context without
-#encircling try: except: finally:. good luck out there.
+#encircling `try: except: finally:`. good luck out there.
 def exctransducer(sigsigdotsigdotsigtype,  fn, *args, **kwargs):
     #pass list of tuples of signal.signal(signal.SIGINT, signal_handler) args
     for sigdotsigtype in sigsigdotsigdotsigtype:
@@ -299,9 +317,9 @@ def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
         # before u announce its availability to other services which might need it.
         #evil_ass_kvstore["host"] = enethost
 
-        inqueue = ipc_queues["sorites"]["bus"]
-        outqueue = ipc_queues["eubulides"]["bus"]
-        responses = ipc_queues["responses"]["bus"]
+        inqueue = ipc_queues["SORITES"]["bus"]
+        outqueue = ipc_queues["EUBULIDES"]["bus"]
+        responses = ipc_queues["WRITTEN"]["bus"]
 
         def ret_meta_error(ipc_err):
             ipc_err_pckt, prt_err = pref(sbytes("WRITTEN"), ("printable",ipc_err))
@@ -315,6 +333,8 @@ def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
                 ret_meta_error(srlz_ipc_err)
             return responses_ipc_packet
 
+        #special case:
+        #d..._ipc isn't called in this fn, but as a non-blocking fn it doesn't need an interrupt queue event.
         def deserialize_IPC(ipc_packet):
             pyobject, desrlz_ipc_err = pdref(ipc_packet)
             if desrlz_ipc_err:
@@ -352,8 +372,7 @@ def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
             #we ultimately need a connection table...
             #which joins task UUIDs to peers who assert claims to task UUIDs.
             ykey = repr(ticker)
-            evil_ass_kvstore[ykey] = event
-
+            
             #refactor phase 1
             y_data = None
             if event.type == enet.EVENT_TYPE_RECEIVE:
@@ -363,9 +382,38 @@ def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
             int(event.type), 
             str(event.peer.address), 
             y_data)
+            #refactor phase 2
+            #lets turn the ykey into a client_identifier.
+            evil_ass_kvstore[ykey] = event
+
+            #yeetable_event:
+            #...
+            #yeetable_client:
+            
+            # our outbound process doesn't actually consume 'events', does it?
+            # `sendstatus = event.peer.send(event.peer.incomingPeerID, payload)`
+            # ultimately references "event.peer.incoming..." and "event.peer.send()".
+            #   it looks like event.packet.data is not consumed by any mproc partition!
+            #   instead a serialized copy is used by echo_protocol. so, uh. hm.
+            #   i think we can fold absolutely all events into a client struct
+            #   
+            #   enet peer state:
+            #   This class should never be instantiated directly, but rather via
+            #   enet.Host.connect or enet.Event.Peer.  If you try to access any members
+            #   of a Peer without being properly instantiated from a Host or Event
+            #   object then a MemoryError will be raised.
+            #   
+            #   to me, this reads as 'copy event.peer (by reference?) into evil_ass_kvstore.
+            #
+            #   secondarily:
+            #   enet events:
+            #   The packet contained in the "packet" field must be destroyed with enet_packet_destroy() 
+            #   when you are done inspecting its contents.
+
 
             #refactor phase 1
             ipc_packet = serialize_IPC("SORITES", yeetable_event)
+            
                 
             #if int(event.type) == int(enet.EVENT_TYPE_CONNECT):
             #    yeetable_event = (ykey, int(event.type), str(event.peer.address), None)
@@ -375,6 +423,10 @@ def enet_inbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
             #    yeetable_event = (ykey, int(event.type), str(event.peer.address), event.packet.data)
 
             inqueue.put(ipc_packet) #blocking ipc i guess!!!
+
+            if event.type == enet.EVENT_TYPE_RECEIVE:
+                print(f"event.peer.connectID:{event.peer.connectID}")
+                #enet.enet_packet_destroy(event.packet)
     except KeyboardInterrupt:
         vile_semaphore[0]=1    #its our flag :)
         pass
@@ -391,9 +443,9 @@ def enet_outbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
         #enethost = evil_ass_kvstore["host"]
         run=True
         
-        inqueue = ipc_queues["sorites"]["bus"]
-        outqueue = ipc_queues["eubulides"]["bus"]
-        responses = ipc_queues["responses"]["bus"]
+        inqueue = ipc_queues["SORITES"]["bus"]
+        outqueue = ipc_queues["EUBULIDES"]["bus"]
+        responses = ipc_queues["WRITTEN"]["bus"]
 
         #enet helper functions block
         def compose_bflags(list):
@@ -431,7 +483,7 @@ def enet_outbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
             
             #refactor phase 1
             ipc_pckt = outqueue.get()
-            sendable = deserialize_IPC(ipc_pckt)
+            ipc_field, sendable = deserialize_IPC(ipc_pckt)
             
             # sendable:(y_event[0],rpckt)   
             # evil_ass_kvstore identifier, protocol return packet
@@ -454,9 +506,9 @@ def enet_outbound(evil_ass_kvstore, ipc_queues, vile_semaphore):
             
             #uses event.peer.send()?? not enet.peer.send()???
             #   🗡re: enet.pyx: ...
-            sendstatus = event.peer.send(event.peer.incomingPeerID, payload)
-            if sendstatus == -1 :
-                printstring = "%s: uh oh in the echo packeto — intended payload was %s" % (str(event.peer.address), sendable[1][:80])
+            sendstatus = event.peer.send(0, payload)    #monochannel
+            if sendstatus <= -1 :
+                printstring = "%s: uh oh in the echo packeto — intended target;payload was %s;%s" % (str(event.peer.address), event.peer.incomingPeerID, sendable[1][:80])
                 printable = serialize_IPC("WRITTEN",("printable",printstring))
                 responses.put(printable)
                 del evil_ass_kvstore[sendable[0]]
@@ -476,9 +528,25 @@ def blocky_printer(ipc_queues, vile_semaphore):
     try:
         run=True
 
-        #inqueue = ipc_queues["sorites"]["bus"]
-        #outqueue = ipc_queues["eubulides"]["bus"]
-        responses = ipc_queues["responses"]["bus"]
+        #inqueue = ipc_queues["SORITES"]["bus"]
+        #outqueue = ipc_queues["EUBULIDES"]["bus"]
+        responses = ipc_queues["WRITTEN"]["bus"]
+
+        def ret_meta_error(ipc_err):
+            #special bc we're inside of the print thread!
+            print("mprc:blocky_printer:unexpected IPC meta event:%s" % ipc_err)
+
+        #def serialize_IPC(fieldstring, pyobject):
+        #    responses_ipc_packet, srlz_ipc_err = pref(sbytes(fieldstring), pyobject)
+        #    if srlz_ipc_err:
+        #        ret_meta_error(srlz_ipc_err)
+        #    return responses_ipc_packet
+
+        def deserialize_IPC(ipc_packet):
+            pyobject, desrlz_ipc_err = pdref(ipc_packet)
+            if desrlz_ipc_err:
+                ret_meta_error(desrlz_ipc_err)
+            return pyobject
 
         #FULLSTOP = vile_semaphore[4]
         #BLOCKY_PRINTER_STOP = vile_semaphore[2]
@@ -486,9 +554,7 @@ def blocky_printer(ipc_queues, vile_semaphore):
         while run and semaphore_NOR(stopsema, vile_semaphore):
             ipc_packet = responses.get()
             #print(repr(ipc_packet))
-            printable, ipc_err = pdref(ipc_packet)
-            if ipc_err:
-                print("mprc:blocky_printer:unexpected IPC deserialization event:%s" % ipc_err)
+            ipc_field, printable = deserialize_IPC(ipc_packet)
             if printable[0] == 'CHECKFLAG':
                 #wake up blocked function
                 continue
@@ -511,9 +577,9 @@ def echo_protocol(ipc_queues, vile_semaphore):
         run = True
         shutdown_recv = False
 
-        inqueue = ipc_queues["sorites"]["bus"]
-        outqueue = ipc_queues["eubulides"]["bus"]
-        responses = ipc_queues["responses"]["bus"]
+        inqueue = ipc_queues["SORITES"]["bus"]
+        outqueue = ipc_queues["EUBULIDES"]["bus"]
+        responses = ipc_queues["WRITTEN"]["bus"]
 
         def ret_meta_error(ipc_err):
             ipc_err_pckt, prt_err = pref(sbytes("WRITTEN"), ("printable",repr(ipc_err)))
@@ -546,18 +612,12 @@ def echo_protocol(ipc_queues, vile_semaphore):
                 run = False
                 continue
 
-            #y_event = inqueue.get() #blocks until something is queued. 
-            #y_event: (ykey, event.type, event.peer.address, event.packet.data.decode())
 
-            #refactor phase 1
-            #y_event, ipc_err = pdref(inqueue.get())
-            #if ipc_err:
-            #    ipc_err_pckt, prt_err = pref(sbytes("WRITTEN"), ("printable",repr(ipc_err)))
-            #    responses.put(ipc_err_pckt)
-            #    print("mprcs:echo_protocol:emergency meta-error failover print:%s:from:%s" % (prt_err,ipc_err_pckt))
             ipc_pckt = inqueue.get()
-            y_event = deserialize_IPC(ipc_pckt)
+            ipc_field, y_event = deserialize_IPC(ipc_pckt)
 
+            #y_event = inqueue.get() #blocks until something is queued.
+            #y_event: (ykey, event.type, event.peer.address, event.packet.data.decode())
 
             if y_event[0] == 'CHECKFLAG':
                 continue
@@ -686,7 +746,7 @@ def host_worker(ipc_queues, vile_semaphore):
 
 def main():
     enet_peer_capacity = 4095 # please don't find a way to saturate this
-    enet_channel_capacity = 128 #again please don't find a way to saturate 2^13 channels
+    enet_channel_capacity = 2 #again please don't find a way to saturate 2^13 channels
     #host = enet.Host(enet.Address("localhost", 33333), enet_peer_capacity, enet_channel_capacity, 0, 0)
     #host.checksum = enet.ENET_CRC32
     #
@@ -700,7 +760,7 @@ def main():
     vile_semaphore = mproc.Array('i', 6, lock=False)
     sorites = mproc.Queue() 
     eubulides = mproc.Queue()
-    responses = mproc.Queue()
+    written = mproc.Queue()
 
     #🗡def exccatcher(...)
     signal.signal(signal.SIGINT, signal_handler)
@@ -710,9 +770,9 @@ def main():
         print(f"created vile_semaphore from main:{vile_semaphore}")
 
     ipc_queues = {
-        'sorites'   :{'bus':sorites,  'CHECKFLAG':("CHECKFLAG", None, None, None)},
-        'eubulides' :{'bus':eubulides,'CHECKFLAG':("CHECKFLAG", None)},
-        'responses' :{'bus':responses,'CHECKFLAG':("CHECKFLAG","Unexpected CHECKFLAG print?")}
+        "SORITES"   :{'bus':sorites,  'CHECKFLAG':("CHECKFLAG", None, None, None)},
+        "EUBULIDES" :{'bus':eubulides,'CHECKFLAG':("CHECKFLAG", None)},
+        "WRITTEN" :{'bus':written,'CHECKFLAG':("CHECKFLAG","Unexpected CHECKFLAG print?")}
     }
 
     """
